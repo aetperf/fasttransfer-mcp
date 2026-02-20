@@ -7,46 +7,91 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that e
 FastTransfer is a high-performance CLI tool for transferring data between databases. This MCP server wraps FastTransfer functionality and provides:
 
 - **Safety-first approach**: Preview commands before execution with user confirmation required
-- **Password masking**: Credentials are never displayed in logs or output
+- **Password masking**: Credentials and connection strings are never displayed in logs or output
 - **Intelligent validation**: Parameter validation with database-specific compatibility checks
 - **Smart suggestions**: Automatic parallelism method recommendations
+- **Version detection**: Automatic binary version detection with capability registry
 - **Comprehensive logging**: Full execution logs with timestamps and results
 
 ## Supported Databases
 
-### Source Databases
-ClickHouse, DuckDB, MySQL, Netezza, Oracle, PostgreSQL, SQL Server, SAP HANA, Teradata
+### Source Types (16)
 
-### Target Databases
-ClickHouse, DuckDB, MySQL, Netezza, Oracle, PostgreSQL, SQL Server, SAP HANA, Teradata
+| Type | Description |
+|------|-------------|
+| `clickhouse` | ClickHouse |
+| `duckdb` | DuckDB |
+| `duckdbstream` | DuckDB Stream (file import) |
+| `hana` | SAP HANA |
+| `mssql` | SQL Server (SqlClient) |
+| `msoledbsql` | SQL Server (MSOLEDBSQL) |
+| `mysql` | MySQL |
+| `nzoledb` | Netezza (OleDB) |
+| `nzsql` | Netezza (SQL) |
+| `nzbulk` | Netezza (Bulk) |
+| `odbc` | Generic ODBC |
+| `oledb` | Generic OleDB |
+| `oraodp` | Oracle (ODP.NET) |
+| `pgcopy` | PostgreSQL (COPY) |
+| `pgsql` | PostgreSQL |
+| `teradata` | Teradata |
 
-## Features
+### Target Types (11)
 
-### Five MCP Tools
+| Type | Description |
+|------|-------------|
+| `clickhousebulk` | ClickHouse Bulk |
+| `duckdb` | DuckDB |
+| `hanabulk` | SAP HANA Bulk |
+| `msbulk` | SQL Server Bulk |
+| `mysqlbulk` | MySQL Bulk |
+| `nzbulk` | Netezza Bulk |
+| `orabulk` | Oracle Bulk |
+| `oradirect` | Oracle Direct Path |
+| `pgcopy` | PostgreSQL COPY |
+| `pgsql` | PostgreSQL |
+| `teradata` | Teradata |
 
-1. **preview_transfer_command** - Build and preview commands WITHOUT executing
-2. **execute_transfer** - Execute previewed commands with confirmation
-3. **validate_connection** - Validate connection parameters
-4. **list_supported_combinations** - Show supported database pairs
-5. **suggest_parallelism_method** - Get parallelism recommendations
+## MCP Tools
 
-### Parallelism Methods
+### 1. `preview_transfer_command`
+Build and preview a FastTransfer command WITHOUT executing it. Shows the exact command with passwords masked. Always use this first.
 
-- **Ctid** - PostgreSQL-specific (optimal for PostgreSQL sources)
-- **Rowid** - Oracle-specific (optimal for Oracle sources)
-- **NZDataSlice** - Netezza-specific (optimal for Netezza sources)
-- **RangeId** - Numeric range distribution (requires numeric key)
-- **Random** - Modulo-based distribution (requires numeric key)
-- **DataDriven** - Distinct value distribution (works with any column)
-- **Ntile** - Even distribution (works with numeric/date/string columns)
-- **None** - Single-threaded (best for small tables)
+### 2. `execute_transfer`
+Execute a previously previewed command. Requires `confirmation: true` as a safety mechanism.
+
+### 3. `validate_connection`
+Validate database connection parameters (parameter check only, does not test actual connectivity).
+
+### 4. `list_supported_combinations`
+List all supported source-to-target database combinations.
+
+### 5. `suggest_parallelism_method`
+Recommend the optimal parallelism method based on source database type and table characteristics.
+
+### 6. `get_version`
+Report the detected FastTransfer binary version, supported types, and feature flags.
+
+## Parallelism Methods
+
+| Method | Best For | Requires Key |
+|--------|----------|:------------:|
+| `Ctid` | PostgreSQL sources | No |
+| `Rowid` | Oracle sources | No |
+| `Physloc` | SQL Server sources without numeric key | No |
+| `NZDataSlice` | Netezza sources | No |
+| `RangeId` | Large tables with numeric key | Yes |
+| `Random` | Tables with evenly distributed numeric key | Yes |
+| `DataDriven` | Any column type, distinct values | Yes |
+| `Ntile` | Even distribution across workers | Yes |
+| `None` | Small tables or troubleshooting | No |
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- FastTransfer binary (obtain from [Arpe.io](https://arpe.io))
+- Python 3.10 or higher
+- FastTransfer binary v0.16+ (obtain from [Arpe.io](https://arpe.io))
 - Claude Code or another MCP client
 
 ### Setup
@@ -67,7 +112,7 @@ ClickHouse, DuckDB, MySQL, Netezza, Oracle, PostgreSQL, SQL Server, SAP HANA, Te
    # Edit .env with your FastTransfer path
    ```
 
-4. **Add to Claude Code configuration** (~/.claude.json):
+4. **Add to Claude Code configuration** (`~/.claude.json`):
    ```json
    {
      "mcpServers": {
@@ -83,10 +128,10 @@ ClickHouse, DuckDB, MySQL, Netezza, Oracle, PostgreSQL, SQL Server, SAP HANA, Te
    }
    ```
 
-5. **Restart Claude Code** to load the MCP server
+5. **Restart Claude Code** to load the MCP server.
 
 6. **Verify installation**:
-   ```bash
+   ```
    # In Claude Code, run:
    /mcp
    # You should see "fasttransfer: connected"
@@ -96,7 +141,7 @@ ClickHouse, DuckDB, MySQL, Netezza, Oracle, PostgreSQL, SQL Server, SAP HANA, Te
 
 ### Environment Variables
 
-Edit .env to configure:
+Edit `.env` to configure:
 
 ```bash
 # Path to FastTransfer binary (required)
@@ -112,41 +157,89 @@ FASTTRANSFER_LOG_DIR=./logs
 LOG_LEVEL=INFO
 ```
 
+## Connection Options
+
+The server supports multiple ways to authenticate and connect:
+
+| Parameter | Description |
+|-----------|-------------|
+| `server` | Host:port or host\instance (optional with `connect_string` or `dsn`) |
+| `user` / `password` | Standard credentials |
+| `trusted_auth` | Windows trusted authentication |
+| `connect_string` | Full connection string (excludes server/user/password/dsn) |
+| `dsn` | ODBC DSN name (excludes server/provider) |
+| `provider` | OleDB provider name |
+| `file_input` | File path for data input (source only, excludes query) |
+
+## Transfer Options
+
+| Option | CLI Flag | Description |
+|--------|----------|-------------|
+| `method` | `--method` | Parallelism method |
+| `distribute_key_column` | `--distributeKeyColumn` | Column for data distribution |
+| `degree` | `--degree` | Parallelism degree (0=auto, >0=fixed, <0=CPU adaptive) |
+| `load_mode` | `--loadmode` | Append or Truncate |
+| `batch_size` | `--batchsize` | Batch size for bulk operations |
+| `map_method` | `--mapmethod` | Column mapping: Position or Name |
+| `run_id` | `--runid` | Run ID for logging |
+| `data_driven_query` | `--datadrivenquery` | Custom SQL for DataDriven method |
+| `use_work_tables` | `--useworktables` | Intermediate work tables for CCI |
+| `settings_file` | `--settingsfile` | Custom settings JSON file |
+| `log_level` | `--loglevel` | Override log level (error/warning/information/debug/fatal) |
+| `no_banner` | `--nobanner` | Suppress banner output |
+| `license_path` | `--license` | License file path or URL |
+
 ## Usage Examples
 
-### Example 1: PostgreSQL to SQL Server Transfer
+### PostgreSQL to SQL Server Transfer
 
 ```
-User: "I need to copy the 'orders' table from my PostgreSQL database
-      (localhost:5432, database: sales_db, schema: public) to SQL Server
-      (localhost:1433, database: warehouse, schema: dbo). Use parallel
-      transfer and truncate the target table first."
+User: "Copy the 'orders' table from PostgreSQL (localhost:5432, database: sales_db,
+       schema: public) to SQL Server (localhost:1433, database: warehouse, schema: dbo).
+       Use parallel transfer and truncate the target first."
 
 Claude Code will:
-1. Call preview_transfer_command with your parameters
-2. Show you the command with masked passwords
-3. Explain what will happen
-4. Ask for confirmation
-5. Execute with execute_transfer when you approve
+1. Call suggest_parallelism_method to recommend Ctid for PostgreSQL
+2. Call preview_transfer_command with your parameters
+3. Show the command with masked passwords
+4. Explain what will happen
+5. Ask for confirmation
+6. Execute with execute_transfer when you approve
 ```
 
-For more usage examples, see the full documentation in README.
+### File Import via DuckDB Stream
+
+```
+User: "Import /data/export.parquet into the SQL Server 'staging' table
+       using DuckDB stream."
+
+Claude Code will use duckdbstream source type with file_input parameter.
+```
+
+### Check Version and Capabilities
+
+```
+User: "What version of FastTransfer is installed?"
+
+Claude Code will call get_version and display the detected version,
+supported source/target types, and available features.
+```
 
 ## Two-Step Safety Process
 
-**IMPORTANT**: This server implements a mandatory two-step process:
+This server implements a mandatory two-step process:
 
-1. **Preview** - Always use preview_transfer_command first
-2. **Execute** - Use execute_transfer with confirmation required
+1. **Preview** - Always use `preview_transfer_command` first
+2. **Execute** - Use `execute_transfer` with `confirmation: true`
 
-**You cannot execute without previewing first and confirming!**
+You cannot execute without previewing first and confirming.
 
-## Security Best Practices
+## Security
 
-- Never log passwords in plain text
-- Use environment variables for sensitive config
+- Passwords and connection strings are masked in all output and logs
+- Sensitive flags masked: `--sourcepassword`, `--targetpassword`, `--sourceconnectstring`, `--targetconnectstring`, `-x`, `-X`, `-g`, `-G`
+- Use environment variables for sensitive configuration
 - Review commands carefully before executing
-- Limit access to the MCP server
 - Use minimum required database permissions
 
 ## Testing
@@ -155,13 +248,32 @@ Run the test suite:
 
 ```bash
 # Run all tests
-pytest tests/
+python -m pytest tests/ -v
 
 # Run with coverage
-pytest tests/ --cov=src --cov-report=html
+python -m pytest tests/ --cov=src --cov-report=html
 ```
 
-Expected coverage: >80%
+## Project Structure
+
+```
+fasttransfer-mcp/
+  src/
+    __init__.py
+    server.py          # MCP server (tool definitions, handlers)
+    fasttransfer.py    # Command builder, executor, suggestions
+    validators.py      # Pydantic models, enums, validation
+    version.py         # Version detection and capabilities registry
+  tests/
+    __init__.py
+    test_command_builder.py
+    test_validators.py
+    test_version.py
+  .env.example
+  requirements.txt
+  CHANGELOG.md
+  README.md
+```
 
 ## License
 
