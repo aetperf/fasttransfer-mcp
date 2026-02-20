@@ -13,45 +13,6 @@ FastTransfer is a high-performance CLI tool for transferring data between databa
 - **Version detection**: Automatic binary version detection with capability registry
 - **Comprehensive logging**: Full execution logs with timestamps and results
 
-## Supported Databases
-
-### Source Types (16)
-
-| Type | Description |
-|------|-------------|
-| `clickhouse` | ClickHouse |
-| `duckdb` | DuckDB |
-| `duckdbstream` | DuckDB Stream (file import) |
-| `hana` | SAP HANA |
-| `mssql` | SQL Server (SqlClient) |
-| `msoledbsql` | SQL Server (MSOLEDBSQL) |
-| `mysql` | MySQL |
-| `nzoledb` | Netezza (OleDB) |
-| `nzsql` | Netezza (SQL) |
-| `nzbulk` | Netezza (Bulk) |
-| `odbc` | Generic ODBC |
-| `oledb` | Generic OleDB |
-| `oraodp` | Oracle (ODP.NET) |
-| `pgcopy` | PostgreSQL (COPY) |
-| `pgsql` | PostgreSQL |
-| `teradata` | Teradata |
-
-### Target Types (11)
-
-| Type | Description |
-|------|-------------|
-| `clickhousebulk` | ClickHouse Bulk |
-| `duckdb` | DuckDB |
-| `hanabulk` | SAP HANA Bulk |
-| `msbulk` | SQL Server Bulk |
-| `mysqlbulk` | MySQL Bulk |
-| `nzbulk` | Netezza Bulk |
-| `orabulk` | Oracle Bulk |
-| `oradirect` | Oracle Direct Path |
-| `pgcopy` | PostgreSQL COPY |
-| `pgsql` | PostgreSQL |
-| `teradata` | Teradata |
-
 ## MCP Tools
 
 ### 1. `preview_transfer_command`
