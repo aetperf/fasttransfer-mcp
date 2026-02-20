@@ -5,12 +5,13 @@ FastTransfer MCP Server
 A Model Context Protocol (MCP) server that exposes FastTransfer functionality
 for efficient data transfer between database systems.
 
-This server provides five tools:
+This server provides six tools:
 1. preview_transfer_command - Build and preview command without executing
 2. execute_transfer - Execute a previously previewed command with confirmation
 3. validate_connection - Test database connectivity
 4. list_supported_combinations - Show supported database pairs
 5. suggest_parallelism_method - Recommend parallelism method
+6. get_version - Report FastTransfer version and capabilities
 """
 
 import os
@@ -45,6 +46,7 @@ from src.validators import (
     ParallelismMethod,
     LoadMode,
     MapMethod,
+    LogLevel,
 )
 from src.fasttransfer import (
     CommandBuilder,
@@ -77,7 +79,12 @@ app = Server("fasttransfer")
 # Global command builder instance
 try:
     command_builder = CommandBuilder(FASTTRANSFER_PATH)
+    version_info = command_builder.get_version()
     logger.info(f"FastTransfer binary found at: {FASTTRANSFER_PATH}")
+    if version_info["detected"]:
+        logger.info(f"FastTransfer version: {version_info['version']}")
+    else:
+        logger.warning("FastTransfer version could not be detected")
 except FastTransferError as e:
     logger.error(f"Failed to initialize CommandBuilder: {e}")
     command_builder = None
@@ -119,11 +126,15 @@ async def list_tools() -> list[Tool]:
                             },
                             "table": {
                                 "type": "string",
-                                "description": "Table name (optional if query provided)",
+                                "description": "Table name (optional if query or file_input provided)",
                             },
                             "query": {
                                 "type": "string",
                                 "description": "SQL query (alternative to table)",
+                            },
+                            "file_input": {
+                                "type": "string",
+                                "description": "File path for data input (alternative to table/query)",
                             },
                             "user": {"type": "string", "description": "Username"},
                             "password": {"type": "string", "description": "Password"},
@@ -132,8 +143,20 @@ async def list_tools() -> list[Tool]:
                                 "description": "Use trusted authentication",
                                 "default": False,
                             },
+                            "connect_string": {
+                                "type": "string",
+                                "description": "Full connection string (alternative to server/user/password)",
+                            },
+                            "dsn": {
+                                "type": "string",
+                                "description": "ODBC DSN name",
+                            },
+                            "provider": {
+                                "type": "string",
+                                "description": "OleDB provider name",
+                            },
                         },
-                        "required": ["type", "server", "database"],
+                        "required": ["type", "database"],
                     },
                     "target": {
                         "type": "object",
@@ -163,8 +186,12 @@ async def list_tools() -> list[Tool]:
                                 "description": "Use trusted authentication",
                                 "default": False,
                             },
+                            "connect_string": {
+                                "type": "string",
+                                "description": "Full connection string (alternative to server/user/password)",
+                            },
                         },
-                        "required": ["type", "server", "database", "table"],
+                        "required": ["type", "database", "table"],
                     },
                     "options": {
                         "type": "object",
@@ -203,6 +230,31 @@ async def list_tools() -> list[Tool]:
                             "run_id": {
                                 "type": "string",
                                 "description": "Run ID for logging",
+                            },
+                            "data_driven_query": {
+                                "type": "string",
+                                "description": "Custom SQL query for DataDriven parallelism method",
+                            },
+                            "use_work_tables": {
+                                "type": "boolean",
+                                "description": "Use intermediate work tables for CCI",
+                            },
+                            "settings_file": {
+                                "type": "string",
+                                "description": "Path to custom settings JSON file",
+                            },
+                            "log_level": {
+                                "type": "string",
+                                "enum": [e.value for e in LogLevel],
+                                "description": "Override log level",
+                            },
+                            "no_banner": {
+                                "type": "boolean",
+                                "description": "Suppress the FastTransfer banner",
+                            },
+                            "license_path": {
+                                "type": "string",
+                                "description": "Path or URL to license file",
                             },
                         },
                     },
@@ -259,8 +311,28 @@ async def list_tools() -> list[Tool]:
                             },
                             "user": {"type": "string", "description": "Username"},
                             "password": {"type": "string", "description": "Password"},
+                            "connect_string": {
+                                "type": "string",
+                                "description": "Full connection string (alternative to server/user/password)",
+                            },
+                            "dsn": {
+                                "type": "string",
+                                "description": "ODBC DSN name",
+                            },
+                            "provider": {
+                                "type": "string",
+                                "description": "OleDB provider name",
+                            },
+                            "trusted_auth": {
+                                "type": "boolean",
+                                "description": "Use trusted authentication",
+                            },
+                            "file_input": {
+                                "type": "string",
+                                "description": "File path for data input",
+                            },
                         },
-                        "required": ["type", "server", "database"],
+                        "required": ["type", "database"],
                     },
                     "side": {
                         "type": "string",
@@ -287,7 +359,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "source_type": {
                         "type": "string",
-                        "description": "Source database type (e.g., 'pgsql', 'oracle', 'mssql')",
+                        "description": "Source database type (e.g., 'pgsql', 'oraodp', 'mssql')",
                     },
                     "has_numeric_key": {
                         "type": "boolean",
@@ -307,6 +379,14 @@ async def list_tools() -> list[Tool]:
                 "required": ["source_type", "has_numeric_key", "table_size_estimate"],
             },
         ),
+        Tool(
+            name="get_version",
+            description=(
+                "Get the detected FastTransfer binary version, capabilities, "
+                "and supported source/target types."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -324,6 +404,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return await handle_list_combinations(arguments)
         elif name == "suggest_parallelism_method":
             return await handle_suggest_parallelism(arguments)
+        elif name == "get_version":
+            return await handle_get_version(arguments)
         else:
             return [TextContent(type="text", text=f"Error: Unknown tool '{name}'")]
 
@@ -508,14 +590,14 @@ async def handle_validate_connection(arguments: Dict[str, Any]) -> list[TextCont
         issues = []
 
         # Check for required fields based on connection type
-        if not connection.trusted_auth and not connection.connect_string:
+        if not connection.trusted_auth and not connection.connect_string and not connection.dsn:
             if not connection.user:
                 issues.append(
-                    "- Username is required (unless using trusted authentication)"
+                    "- Username is required (unless using trusted authentication, connect_string, or dsn)"
                 )
 
-        # Check server format
-        if ":" not in connection.server and "\\" not in connection.server:
+        # Check server format (only if server is provided)
+        if connection.server and ":" not in connection.server and "\\" not in connection.server:
             issues.append(
                 f"- Server '{connection.server}' may need port (e.g., localhost:5432) or instance name"
             )
@@ -524,22 +606,32 @@ async def handle_validate_connection(arguments: Dict[str, Any]) -> list[TextCont
             response = [
                 f"# Connection Validation - {request.side.upper()}",
                 "",
-                "⚠️  **Issues Found:**",
+                "**Issues Found:**",
                 "",
                 *issues,
                 "",
                 "Note: This is a parameter check only. Actual connectivity is tested during transfer execution.",
             ]
         else:
+            auth_method = "Trusted"
+            if connection.connect_string:
+                auth_method = "Connection String"
+            elif connection.dsn:
+                auth_method = "DSN"
+            elif connection.trusted_auth:
+                auth_method = "Trusted"
+            else:
+                auth_method = "Username/Password"
+
             response = [
                 f"# Connection Validation - {request.side.upper()}",
                 "",
-                "✅ **All required parameters present**",
+                "**All required parameters present**",
                 "",
                 f"- Connection Type: {connection.type}",
-                f"- Server: {connection.server}",
+                f"- Server: {connection.server or '(not specified)'}",
                 f"- Database: {connection.database}",
-                f"- Authentication: {'Trusted' if connection.trusted_auth else 'Username/Password'}",
+                f"- Authentication: {auth_method}",
                 "",
                 "Note: This validates parameters only. Actual connectivity will be tested during transfer.",
             ]
@@ -616,6 +708,7 @@ async def handle_suggest_parallelism(arguments: Dict[str, Any]) -> list[TextCont
             "## Other Considerations:",
             "- **Ctid**: Best for PostgreSQL (no key column needed)",
             "- **Rowid**: Best for Oracle (no key column needed)",
+            "- **Physloc**: Best for SQL Server without numeric key",
             "- **RangeId**: Requires numeric key with good distribution",
             "- **Random**: Requires numeric key, uses modulo distribution",
             "- **DataDriven**: Works with any data type, uses distinct values",
@@ -633,14 +726,63 @@ async def handle_suggest_parallelism(arguments: Dict[str, Any]) -> list[TextCont
         return [TextContent(type="text", text="\n".join(error_msg))]
 
 
+async def handle_get_version(arguments: Dict[str, Any]) -> list[TextContent]:
+    """Handle get_version tool."""
+    if command_builder is None:
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    "Error: FastTransfer binary not found or not accessible.\n"
+                    f"Expected location: {FASTTRANSFER_PATH}\n"
+                    "Please set FASTTRANSFER_PATH environment variable correctly."
+                ),
+            )
+        ]
+
+    version_info = command_builder.get_version()
+    caps = version_info["capabilities"]
+
+    response = [
+        "# FastTransfer Version Information",
+        "",
+        f"**Version**: {version_info['version'] or 'Unknown'}",
+        f"**Detected**: {'Yes' if version_info['detected'] else 'No'}",
+        f"**Binary Path**: {version_info['binary_path']}",
+        "",
+        "## Supported Source Types:",
+        ", ".join(f"`{t}`" for t in caps["source_types"]),
+        "",
+        "## Supported Target Types:",
+        ", ".join(f"`{t}`" for t in caps["target_types"]),
+        "",
+        "## Supported Parallelism Methods:",
+        ", ".join(f"`{m}`" for m in caps["parallelism_methods"]),
+        "",
+        "## Feature Flags:",
+        f"- No Banner: {'Yes' if caps['supports_nobanner'] else 'No'}",
+        f"- Version Flag: {'Yes' if caps['supports_version_flag'] else 'No'}",
+        f"- File Input: {'Yes' if caps['supports_file_input'] else 'No'}",
+        f"- Settings File: {'Yes' if caps['supports_settings_file'] else 'No'}",
+        f"- License Path: {'Yes' if caps['supports_license_path'] else 'No'}",
+    ]
+
+    return [TextContent(type="text", text="\n".join(response))]
+
+
 def _build_transfer_explanation(request: TransferRequest) -> str:
     """Build a human-readable explanation of what the transfer will do."""
     parts = []
 
     # Source
-    if request.source.query:
+    if request.source.file_input:
         parts.append(
-            f"Execute query on {request.source.type} ({request.source.server}/{request.source.database})"
+            f"Import file '{request.source.file_input}' via {request.source.type} into {request.source.database}"
+        )
+    elif request.source.query:
+        server_info = f" ({request.source.server}/{request.source.database})" if request.source.server else f" ({request.source.database})"
+        parts.append(
+            f"Execute query on {request.source.type}{server_info}"
         )
     else:
         source_table = (

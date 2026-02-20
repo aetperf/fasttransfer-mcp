@@ -18,11 +18,14 @@ class SourceConnectionType(str, Enum):
     DUCKDB_STREAM = "duckdbstream"
     HANA = "hana"
     MSSQL = "mssql"
+    MSOLEDBSQL = "msoledbsql"
     MYSQL = "mysql"
-    NETEZZA_COPY = "nzcopy"
+    NETEZZA_OLEDB = "nzoledb"
+    NETEZZA_SQL = "nzsql"
+    NETEZZA_BULK = "nzbulk"
     ODBC = "odbc"
     OLEDB = "oledb"
-    ORACLE = "oracle"
+    ORACLE_ODP = "oraodp"
     POSTGRES_COPY = "pgcopy"
     POSTGRES = "pgsql"
     TERADATA = "teradata"
@@ -40,6 +43,7 @@ class TargetConnectionType(str, Enum):
     ORACLE_BULK = "orabulk"
     ORACLE_DIRECT = "oradirect"
     POSTGRES_COPY = "pgcopy"
+    POSTGRES = "pgsql"
     TERADATA = "teradata"
 
 
@@ -71,17 +75,28 @@ class MapMethod(str, Enum):
     NAME = "Name"  # Map by name (case-insensitive)
 
 
+class LogLevel(str, Enum):
+    """Log level for FastTransfer output."""
+
+    ERROR = "error"
+    WARNING = "warning"
+    INFORMATION = "information"
+    DEBUG = "debug"
+    FATAL = "fatal"
+
+
 class ConnectionConfig(BaseModel):
     """Database connection configuration."""
 
     type: str = Field(..., description="Connection type (source or target)")
-    server: str = Field(..., description="Server address (host:port or host\\instance)")
+    server: Optional[str] = Field(None, description="Server address (host:port or host\\instance)")
     database: str = Field(..., description="Database name")
     schema: Optional[str] = Field(None, description="Schema name")
     table: Optional[str] = Field(
         None, description="Table name (optional if query provided)"
     )
     query: Optional[str] = Field(None, description="SQL query (alternative to table)")
+    file_input: Optional[str] = Field(None, description="File path for data input (alternative to table/query)")
     user: Optional[str] = Field(None, description="Username for authentication")
     password: Optional[str] = Field(None, description="Password for authentication")
     trusted_auth: bool = Field(
@@ -94,6 +109,59 @@ class ConnectionConfig(BaseModel):
     provider: Optional[str] = Field(None, description="OleDB provider name")
 
     @model_validator(mode="after")
+    def validate_mutual_exclusivity(self):
+        """Validate mutually exclusive connection parameters."""
+        # connect_string excludes individual connection params
+        if self.connect_string:
+            conflicts = []
+            if self.dsn:
+                conflicts.append("dsn")
+            if self.provider:
+                conflicts.append("provider")
+            if self.server:
+                conflicts.append("server")
+            if self.user:
+                conflicts.append("user")
+            if self.password:
+                conflicts.append("password")
+            if self.trusted_auth:
+                conflicts.append("trusted_auth")
+            if conflicts:
+                raise ValueError(
+                    f"connect_string cannot be used with: {', '.join(conflicts)}"
+                )
+
+        # dsn excludes provider and server
+        if self.dsn:
+            conflicts = []
+            if self.provider:
+                conflicts.append("provider")
+            if self.server:
+                conflicts.append("server")
+            if conflicts:
+                raise ValueError(
+                    f"dsn cannot be used with: {', '.join(conflicts)}"
+                )
+
+        # trusted_auth excludes user and password
+        if self.trusted_auth:
+            conflicts = []
+            if self.user:
+                conflicts.append("user")
+            if self.password:
+                conflicts.append("password")
+            if conflicts:
+                raise ValueError(
+                    f"trusted_auth cannot be used with: {', '.join(conflicts)}"
+                )
+
+        # file_input excludes query
+        if self.file_input and self.query:
+            raise ValueError("file_input cannot be used with query")
+
+        return self
+
+    @model_validator(mode="after")
     def validate_authentication(self):
         """Ensure either credentials or trusted auth is provided."""
         if not self.trusted_auth and not self.connect_string and not self.dsn:
@@ -101,12 +169,6 @@ class ConnectionConfig(BaseModel):
                 raise ValueError(
                     "Either user/password, trusted_auth, connect_string, or dsn must be provided"
                 )
-        return self
-
-    @model_validator(mode="after")
-    def validate_table_or_query(self):
-        """Ensure either table or query is provided for source connections."""
-        # This will be checked in the main request validator
         return self
 
 
@@ -134,6 +196,24 @@ class TransferOptions(BaseModel):
     )
     run_id: Optional[str] = Field(
         None, description="Run ID for logging and tracking purposes"
+    )
+    data_driven_query: Optional[str] = Field(
+        None, description="Custom SQL query for DataDriven parallelism method"
+    )
+    use_work_tables: Optional[bool] = Field(
+        None, description="Use intermediate work tables for CCI"
+    )
+    settings_file: Optional[str] = Field(
+        None, description="Path to custom settings JSON file"
+    )
+    log_level: Optional[LogLevel] = Field(
+        None, description="Override log level"
+    )
+    no_banner: bool = Field(
+        False, description="Suppress the FastTransfer banner"
+    )
+    license_path: Optional[str] = Field(
+        None, description="Path or URL to license file"
     )
 
     @field_validator("degree")
@@ -163,6 +243,15 @@ class TransferOptions(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_data_driven_query(self):
+        """Validate data_driven_query is only used with DataDriven method."""
+        if self.data_driven_query and self.method != ParallelismMethod.DATA_DRIVEN:
+            raise ValueError(
+                "data_driven_query can only be used with the DataDriven method"
+            )
+        return self
+
 
 class TransferRequest(BaseModel):
     """Complete transfer request with source, target, and options."""
@@ -175,11 +264,16 @@ class TransferRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_table_or_query(self):
-        """Ensure source has either table or query."""
-        if not self.source.table and not self.source.query:
-            raise ValueError("Source must specify either 'table' or 'query'")
-        if self.source.table and self.source.query:
-            raise ValueError("Source cannot specify both 'table' and 'query'")
+        """Ensure source has either table, query, or file_input."""
+        has_table = bool(self.source.table)
+        has_query = bool(self.source.query)
+        has_file_input = bool(self.source.file_input)
+        count = sum([has_table, has_query, has_file_input])
+
+        if count == 0:
+            raise ValueError("Source must specify either 'table', 'query', or 'file_input'")
+        if count > 1:
+            raise ValueError("Source must specify only one of 'table', 'query', or 'file_input'")
         return self
 
     @model_validator(mode="after")
@@ -199,7 +293,6 @@ class TransferRequest(BaseModel):
         if method == ParallelismMethod.CTID and source_type not in [
             "pgsql",
             "pgcopy",
-            "postgres",
         ]:
             raise ValueError(
                 f"Method 'Ctid' only works with PostgreSQL sources, not '{source_type}'"
@@ -207,7 +300,6 @@ class TransferRequest(BaseModel):
 
         # Rowid is Oracle-specific
         if method == ParallelismMethod.ROWID and source_type not in [
-            "oracle",
             "oraodp",
         ]:
             raise ValueError(
@@ -217,12 +309,22 @@ class TransferRequest(BaseModel):
         # NZDataSlice is Netezza-specific
         if method == ParallelismMethod.NZ_DATA_SLICE and source_type not in [
             "nzoledb",
-            "nzcopy",
             "nzsql",
             "nzbulk",
         ]:
             raise ValueError(
                 f"Method 'NZDataSlice' only works with Netezza sources, not '{source_type}'"
+            )
+
+        # Physloc is SQL Server-specific
+        if method == ParallelismMethod.PHYSLOC and source_type not in [
+            "mssql",
+            "oledb",
+            "odbc",
+            "msoledbsql",
+        ]:
+            raise ValueError(
+                f"Method 'Physloc' only works with SQL Server sources (mssql, oledb, odbc, msoledbsql), not '{source_type}'"
             )
 
         return self
@@ -235,7 +337,6 @@ class TransferRequest(BaseModel):
             and self.options.distribute_key_column
         ):
             # Note: We can't validate if column is numeric without database access
-            # This is a reminder in the model
             pass
         return self
 

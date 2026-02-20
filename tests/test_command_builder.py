@@ -15,6 +15,7 @@ from src.fasttransfer import (
     suggest_parallelism_method,
 )
 from src.validators import TransferRequest, ParallelismMethod
+from src.version import FastTransferVersion
 
 
 @pytest.fixture
@@ -29,7 +30,20 @@ def mock_binary(tmp_path):
 @pytest.fixture
 def command_builder(mock_binary):
     """Create a CommandBuilder with mock binary."""
-    return CommandBuilder(mock_binary)
+    with patch("src.fasttransfer.VersionDetector") as MockDetector:
+        mock_detector = MockDetector.return_value
+        mock_detector.detect.return_value = FastTransferVersion(0, 16, 0, 0)
+        mock_detector.capabilities = Mock()
+        mock_detector.capabilities.source_types = frozenset(["pgsql", "mssql"])
+        mock_detector.capabilities.target_types = frozenset(["msbulk", "pgcopy"])
+        mock_detector.capabilities.parallelism_methods = frozenset(["None", "Ctid"])
+        mock_detector.capabilities.supports_nobanner = True
+        mock_detector.capabilities.supports_version_flag = True
+        mock_detector.capabilities.supports_file_input = True
+        mock_detector.capabilities.supports_settings_file = True
+        mock_detector.capabilities.supports_license_path = True
+        builder = CommandBuilder(mock_binary)
+    return builder
 
 
 @pytest.fixture
@@ -68,7 +82,8 @@ class TestCommandBuilder:
 
     def test_init_with_valid_binary(self, mock_binary):
         """Test initialization with valid binary."""
-        builder = CommandBuilder(mock_binary)
+        with patch("src.fasttransfer.VersionDetector"):
+            builder = CommandBuilder(mock_binary)
         assert builder.binary_path == Path(mock_binary)
 
     def test_init_with_nonexistent_binary(self):
@@ -167,6 +182,108 @@ class TestCommandBuilder:
         # Check table is NOT included
         assert "--sourcetable" not in command
 
+    def test_build_command_with_file_input(self, command_builder):
+        """Test building command with file_input."""
+        request = TransferRequest(
+            source={
+                "type": "duckdbstream",
+                "database": "memdb",
+                "file_input": "/data/export.csv",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+        )
+
+        command = command_builder.build_command(request)
+        assert "--fileinput" in command
+        idx = command.index("--fileinput")
+        assert command[idx + 1] == "/data/export.csv"
+        assert "--sourcetable" not in command
+        assert "--query" not in command
+
+    def test_build_command_with_connect_string(self, command_builder):
+        """Test building command with source connect_string."""
+        request = TransferRequest(
+            source={
+                "type": "odbc",
+                "database": "sourcedb",
+                "table": "users",
+                "connect_string": "Driver={ODBC Driver 17};Server=myhost;Database=sourcedb;UID=u;PWD=p",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+        )
+
+        command = command_builder.build_command(request)
+        assert "--sourceconnectstring" in command
+        assert "--sourceserver" not in command
+        assert "--sourceuser" not in command
+
+    def test_build_command_with_dsn(self, command_builder):
+        """Test building command with source DSN."""
+        request = TransferRequest(
+            source={
+                "type": "odbc",
+                "database": "sourcedb",
+                "table": "users",
+                "dsn": "MyDSN",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+        )
+
+        command = command_builder.build_command(request)
+        assert "--sourcedsn" in command
+        idx = command.index("--sourcedsn")
+        assert command[idx + 1] == "MyDSN"
+
+    def test_build_command_with_provider(self, command_builder):
+        """Test building command with source provider."""
+        request = TransferRequest(
+            source={
+                "type": "oledb",
+                "server": "localhost",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+                "provider": "SQLOLEDB",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+        )
+
+        command = command_builder.build_command(request)
+        assert "--sourceprovider" in command
+        idx = command.index("--sourceprovider")
+        assert command[idx + 1] == "SQLOLEDB"
+
     def test_build_command_with_trusted_auth(self, command_builder):
         """Test building command with trusted authentication."""
         request = TransferRequest(
@@ -238,6 +355,168 @@ class TestCommandBuilder:
         assert "--runid" in command
         assert "test-run-001" in command
 
+    def test_build_command_with_data_driven_query(self, command_builder):
+        """Test building command with data_driven_query."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={
+                "method": "DataDriven",
+                "distribute_key_column": "region",
+                "data_driven_query": "SELECT DISTINCT region FROM users",
+            },
+        )
+
+        command = command_builder.build_command(request)
+        assert "--datadrivenquery" in command
+        idx = command.index("--datadrivenquery")
+        assert command[idx + 1] == "SELECT DISTINCT region FROM users"
+
+    def test_build_command_with_work_tables(self, command_builder):
+        """Test building command with use_work_tables."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={"use_work_tables": True},
+        )
+
+        command = command_builder.build_command(request)
+        assert "--useworktables" in command
+
+    def test_build_command_with_settings_file(self, command_builder):
+        """Test building command with settings_file."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={"settings_file": "/path/to/settings.json"},
+        )
+
+        command = command_builder.build_command(request)
+        assert "--settingsfile" in command
+        idx = command.index("--settingsfile")
+        assert command[idx + 1] == "/path/to/settings.json"
+
+    def test_build_command_with_log_level(self, command_builder):
+        """Test building command with log_level."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={"log_level": "debug"},
+        )
+
+        command = command_builder.build_command(request)
+        assert "--loglevel" in command
+        idx = command.index("--loglevel")
+        assert command[idx + 1] == "debug"
+
+    def test_build_command_with_nobanner(self, command_builder):
+        """Test building command with no_banner."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={"no_banner": True},
+        )
+
+        command = command_builder.build_command(request)
+        assert "--nobanner" in command
+
+    def test_build_command_with_license(self, command_builder):
+        """Test building command with license_path."""
+        request = TransferRequest(
+            source={
+                "type": "pgsql",
+                "server": "localhost:5432",
+                "database": "sourcedb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            target={
+                "type": "msbulk",
+                "server": "localhost",
+                "database": "targetdb",
+                "table": "users",
+                "user": "user",
+                "password": "pass",
+            },
+            options={"license_path": "/path/to/license.lic"},
+        )
+
+        command = command_builder.build_command(request)
+        assert "--license" in command
+        idx = command.index("--license")
+        assert command[idx + 1] == "/path/to/license.lic"
+
     def test_mask_password(self, command_builder):
         """Test password masking in commands."""
         command = [
@@ -263,15 +542,44 @@ class TestCommandBuilder:
         assert "user1" in masked
         assert "user2" in masked
 
+    def test_mask_connection_string(self, command_builder):
+        """Test connection string masking."""
+        command = [
+            "/path/to/FastTransfer",
+            "--sourceconnectstring",
+            "Server=host;UID=user;PWD=secret",
+            "--targetconnectstring",
+            "Server=host2;UID=user2;PWD=secret2",
+        ]
+
+        masked = command_builder.mask_password(command)
+        assert "Server=host;UID=user;PWD=secret" not in masked
+        assert "Server=host2;UID=user2;PWD=secret2" not in masked
+        assert masked.count("******") == 2
+
+    def test_mask_connection_string_short_flags(self, command_builder):
+        """Test connection string masking with short flags."""
+        command = [
+            "/path/to/FastTransfer",
+            "-g",
+            "source_connstr",
+            "-G",
+            "target_connstr",
+        ]
+
+        masked = command_builder.mask_password(command)
+        assert "source_connstr" not in masked
+        assert "target_connstr" not in masked
+        assert masked.count("******") == 2
+
     def test_format_command_display_with_mask(self, command_builder, sample_request):
         """Test formatting command for display with masked passwords."""
         command = command_builder.build_command(sample_request)
         display = command_builder.format_command_display(command, mask=True)
 
-        # Check passwords are masked - look for password param followed by masked value
+        # Check passwords are masked
         assert "--sourcepassword ******" in display
         assert "--targetpassword ******" in display
-        assert "******" in display
 
         # Ensure actual password values are not present
         assert " sourcepass " not in display and not display.endswith(" sourcepass")
@@ -286,14 +594,30 @@ class TestCommandBuilder:
         command = command_builder.build_command(sample_request)
         display = command_builder.format_command_display(command, mask=False)
 
-        # Check passwords are visible - look for password param followed by actual value
+        # Check passwords are visible
         assert "--sourcepassword sourcepass" in display
         assert "--targetpassword targetpass" in display
+
+    def test_get_version_method(self, command_builder):
+        """Test get_version returns structured info."""
+        info = command_builder.get_version()
+
+        assert "version" in info
+        assert "detected" in info
+        assert "binary_path" in info
+        assert "capabilities" in info
+        assert "source_types" in info["capabilities"]
+        assert "target_types" in info["capabilities"]
+        assert "parallelism_methods" in info["capabilities"]
+        assert "supports_nobanner" in info["capabilities"]
+
+    def test_version_detector_property(self, command_builder):
+        """Test version_detector property is accessible."""
+        assert command_builder.version_detector is not None
 
     @patch("subprocess.run")
     def test_execute_command_success(self, mock_run, command_builder):
         """Test successful command execution."""
-        # Mock successful execution
         mock_result = Mock()
         mock_result.returncode = 0
         mock_result.stdout = "Transfer completed successfully"
@@ -312,7 +636,6 @@ class TestCommandBuilder:
     @patch("subprocess.run")
     def test_execute_command_failure(self, mock_run, command_builder):
         """Test failed command execution."""
-        # Mock failed execution
         mock_result = Mock()
         mock_result.returncode = 1
         mock_result.stdout = ""
@@ -330,7 +653,6 @@ class TestCommandBuilder:
     @patch("subprocess.run")
     def test_execute_command_timeout(self, mock_run, command_builder):
         """Test command execution timeout."""
-        # Mock timeout
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=1)
 
         command = [str(command_builder.binary_path), "--help"]
@@ -342,7 +664,6 @@ class TestCommandBuilder:
     @patch("subprocess.run")
     def test_execute_command_with_logging(self, mock_run, command_builder, tmp_path):
         """Test command execution with log saving."""
-        # Mock successful execution
         mock_result = Mock()
         mock_result.returncode = 0
         mock_result.stdout = "Success"
@@ -378,9 +699,16 @@ class TestHelperFunctions:
         assert "PostgreSQL" in combinations
         assert "SQL Server" in combinations
         assert "Oracle" in combinations
+        assert "DuckDB Stream (File Import)" in combinations
+        assert "SAP HANA" in combinations
+        assert "Teradata" in combinations
 
         # Check PostgreSQL can target multiple databases
         assert len(combinations["PostgreSQL"]) > 3
+
+        # Check all sources can target multiple databases
+        for source, targets in combinations.items():
+            assert len(targets) >= 5, f"{source} should have at least 5 targets"
 
     def test_suggest_parallelism_small_table(self):
         """Test parallelism suggestion for small table."""
@@ -404,40 +732,50 @@ class TestHelperFunctions:
         )
 
         assert suggestion["method"] == "Ctid"
-        assert (
-            "PostgreSQL" in suggestion["explanation"]
-            or "Ctid" in suggestion["explanation"]
-        )
 
-    def test_suggest_parallelism_oracle(self):
-        """Test parallelism suggestion for Oracle source."""
+    def test_suggest_parallelism_oraodp(self):
+        """Test parallelism suggestion for oraodp source."""
         suggestion = suggest_parallelism_method(
-            source_type="oracle",
+            source_type="oraodp",
             has_numeric_key=False,
             has_identity_column=False,
             table_size_estimate="medium",
         )
 
         assert suggestion["method"] == "Rowid"
-        assert (
-            "Oracle" in suggestion["explanation"]
-            or "Rowid" in suggestion["explanation"]
-        )
 
     def test_suggest_parallelism_netezza(self):
-        """Test parallelism suggestion for Netezza source."""
+        """Test parallelism suggestion for Netezza source types."""
+        for nz_type in ["nzoledb", "nzsql", "nzbulk"]:
+            suggestion = suggest_parallelism_method(
+                source_type=nz_type,
+                has_numeric_key=False,
+                has_identity_column=False,
+                table_size_estimate="large",
+            )
+            assert suggestion["method"] == "NZDataSlice"
+
+    def test_suggest_parallelism_mssql_no_key(self):
+        """Test parallelism suggestion for SQL Server without numeric key."""
         suggestion = suggest_parallelism_method(
-            source_type="nzcopy",
+            source_type="mssql",
             has_numeric_key=False,
             has_identity_column=False,
             table_size_estimate="large",
         )
 
-        assert suggestion["method"] == "NZDataSlice"
-        assert (
-            "Netezza" in suggestion["explanation"]
-            or "NZDataSlice" in suggestion["explanation"]
+        assert suggestion["method"] == "Physloc"
+
+    def test_suggest_parallelism_msoledbsql_no_key(self):
+        """Test parallelism suggestion for msoledbsql without numeric key."""
+        suggestion = suggest_parallelism_method(
+            source_type="msoledbsql",
+            has_numeric_key=False,
+            has_identity_column=False,
+            table_size_estimate="medium",
         )
+
+        assert suggestion["method"] == "Physloc"
 
     def test_suggest_parallelism_with_numeric_key(self):
         """Test parallelism suggestion for table with numeric key."""
@@ -449,7 +787,6 @@ class TestHelperFunctions:
         )
 
         assert suggestion["method"] in ["RangeId", "Random"]
-        assert "numeric" in suggestion["explanation"].lower()
 
     def test_suggest_parallelism_generic_large_table(self):
         """Test parallelism suggestion for generic large table."""

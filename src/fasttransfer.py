@@ -6,19 +6,17 @@ FastTransfer commands with proper security measures.
 """
 
 import os
-import shlex
 import subprocess
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 
 from .validators import (
     TransferRequest,
     ConnectionConfig,
-    SourceConnectionType,
-    TargetConnectionType,
 )
+from .version import VersionDetector
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +43,42 @@ class CommandBuilder:
         """
         self.binary_path = Path(binary_path)
         self._validate_binary()
+        self._version_detector = VersionDetector(str(self.binary_path))
+        detected = self._version_detector.detect()
+        if detected:
+            logger.info(f"FastTransfer version {detected} detected")
+        else:
+            logger.warning("Could not detect FastTransfer version")
+
+    @property
+    def version_detector(self) -> VersionDetector:
+        """Access the version detector instance."""
+        return self._version_detector
+
+    def get_version(self) -> Dict[str, Any]:
+        """Get version information and capabilities.
+
+        Returns:
+            Dict with version string, detection status, binary path, and capabilities.
+        """
+        detected = self._version_detector.detect()
+        caps = self._version_detector.capabilities
+
+        return {
+            "version": str(detected) if detected else None,
+            "detected": detected is not None,
+            "binary_path": str(self.binary_path),
+            "capabilities": {
+                "source_types": sorted(caps.source_types),
+                "target_types": sorted(caps.target_types),
+                "parallelism_methods": sorted(caps.parallelism_methods),
+                "supports_nobanner": caps.supports_nobanner,
+                "supports_version_flag": caps.supports_version_flag,
+                "supports_file_input": caps.supports_file_input,
+                "supports_settings_file": caps.supports_settings_file,
+                "supports_license_path": caps.supports_license_path,
+            },
+        }
 
     def _validate_binary(self) -> None:
         """Validate that FastTransfer binary exists and is executable."""
@@ -109,7 +143,7 @@ class CommandBuilder:
             if source.trusted_auth:
                 params.append("--sourcetrusted")
 
-        # Database, schema, table/query
+        # Database, schema, table/query/file_input
         if source.database:
             params.extend(["--sourcedatabase", source.database])
         if source.schema:
@@ -118,6 +152,8 @@ class CommandBuilder:
             params.extend(["--sourcetable", source.table])
         elif source.query:
             params.extend(["--query", source.query])
+        elif source.file_input:
+            params.extend(["--fileinput", source.file_input])
 
         # Provider (for OleDB)
         if source.provider:
@@ -184,27 +220,56 @@ class CommandBuilder:
         if options.run_id:
             params.extend(["--runid", options.run_id])
 
+        # Data driven query
+        if options.data_driven_query:
+            params.extend(["--datadrivenquery", options.data_driven_query])
+
+        # Use work tables
+        if options.use_work_tables is not None:
+            params.append("--useworktables")
+
+        # Settings file
+        if options.settings_file:
+            params.extend(["--settingsfile", options.settings_file])
+
+        # Log level
+        if options.log_level:
+            params.extend(["--loglevel", options.log_level.value])
+
+        # No banner
+        if options.no_banner:
+            params.append("--nobanner")
+
+        # License path
+        if options.license_path:
+            params.extend(["--license", options.license_path])
+
         return params
 
     def mask_password(self, command: List[str]) -> List[str]:
         """
-        Create a copy of command with passwords masked.
+        Create a copy of command with passwords and connection strings masked.
 
         Args:
             command: Command list to mask
 
         Returns:
-            Command list with passwords replaced by '******'
+            Command list with sensitive values replaced by '******'
         """
         masked = []
         mask_next = False
+
+        sensitive_flags = {
+            "--sourcepassword", "--targetpassword", "-x", "-X",
+            "--sourceconnectstring", "--targetconnectstring", "-g", "-G",
+        }
 
         for part in command:
             if mask_next:
                 masked.append("******")
                 mask_next = False
             else:
-                if part in ["--sourcepassword", "--targetpassword", "-x", "-X"]:
+                if part in sensitive_flags:
                     mask_next = True
                 masked.append(part)
 
@@ -357,6 +422,8 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "SQL Server",
             "MySQL",
             "Oracle",
+            "SAP HANA",
+            "Teradata",
         ],
         "DuckDB": [
             "DuckDB",
@@ -365,6 +432,18 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "MySQL",
             "Oracle",
             "ClickHouse",
+            "SAP HANA",
+            "Teradata",
+        ],
+        "DuckDB Stream (File Import)": [
+            "DuckDB",
+            "PostgreSQL",
+            "SQL Server",
+            "MySQL",
+            "Oracle",
+            "ClickHouse",
+            "SAP HANA",
+            "Teradata",
         ],
         "MySQL": [
             "MySQL",
@@ -373,8 +452,18 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "Oracle",
             "DuckDB",
             "ClickHouse",
+            "SAP HANA",
+            "Teradata",
         ],
-        "Netezza": ["Netezza", "PostgreSQL", "SQL Server", "Oracle", "DuckDB"],
+        "Netezza": [
+            "Netezza",
+            "PostgreSQL",
+            "SQL Server",
+            "Oracle",
+            "DuckDB",
+            "SAP HANA",
+            "Teradata",
+        ],
         "Oracle": [
             "Oracle",
             "PostgreSQL",
@@ -382,6 +471,8 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "MySQL",
             "DuckDB",
             "ClickHouse",
+            "SAP HANA",
+            "Teradata",
         ],
         "PostgreSQL": [
             "PostgreSQL",
@@ -391,8 +482,18 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "DuckDB",
             "ClickHouse",
             "Netezza",
+            "SAP HANA",
+            "Teradata",
         ],
-        "SAP HANA": ["SAP HANA", "PostgreSQL", "SQL Server", "Oracle", "DuckDB"],
+        "SAP HANA": [
+            "SAP HANA",
+            "PostgreSQL",
+            "SQL Server",
+            "Oracle",
+            "DuckDB",
+            "ClickHouse",
+            "Teradata",
+        ],
         "SQL Server": [
             "SQL Server",
             "PostgreSQL",
@@ -400,8 +501,18 @@ def get_supported_combinations() -> Dict[str, List[str]]:
             "Oracle",
             "DuckDB",
             "ClickHouse",
+            "SAP HANA",
+            "Teradata",
         ],
-        "Teradata": ["Teradata", "PostgreSQL", "SQL Server", "Oracle", "DuckDB"],
+        "Teradata": [
+            "Teradata",
+            "PostgreSQL",
+            "SQL Server",
+            "Oracle",
+            "DuckDB",
+            "ClickHouse",
+            "SAP HANA",
+        ],
     }
 
 
@@ -433,24 +544,31 @@ def suggest_parallelism_method(
         }
 
     # PostgreSQL - Ctid is optimal
-    if source_lower in ["pgsql", "pgcopy", "postgres", "postgresql"]:
+    if source_lower in ["pgsql", "pgcopy", "postgresql"]:
         return {
             "method": "Ctid",
             "explanation": "PostgreSQL source detected. Ctid method provides efficient parallel reading using PostgreSQL's native tuple identifier.",
         }
 
     # Oracle - Rowid is optimal
-    if source_lower in ["oracle", "oraodp"]:
+    if source_lower in ["oraodp"]:
         return {
             "method": "Rowid",
             "explanation": "Oracle source detected. Rowid method provides efficient parallel reading using Oracle's native row identifier.",
         }
 
     # Netezza - NZDataSlice is optimal
-    if source_lower in ["nzoledb", "nzcopy", "nzsql", "nzbulk", "netezza"]:
+    if source_lower in ["nzoledb", "nzsql", "nzbulk", "netezza"]:
         return {
             "method": "NZDataSlice",
             "explanation": "Netezza source detected. NZDataSlice method leverages Netezza's data slicing for optimal parallel performance.",
+        }
+
+    # SQL Server without numeric key - Physloc is a good option
+    if source_lower in ["mssql", "oledb", "odbc", "msoledbsql"] and not has_numeric_key:
+        return {
+            "method": "Physloc",
+            "explanation": "SQL Server source detected without numeric key. Physloc method uses physical row location for parallel reading without requiring a key column.",
         }
 
     # If has numeric key - RangeId or Random are good choices
