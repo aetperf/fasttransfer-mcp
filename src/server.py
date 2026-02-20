@@ -829,7 +829,7 @@ def _build_transfer_explanation(request: TransferRequest) -> str:
 
 
 async def main():
-    """Main entry point for the MCP server."""
+    """Async entry point for the MCP server."""
     logger.info("Starting FastTransfer MCP Server...")
     logger.info(f"FastTransfer binary: {FASTTRANSFER_PATH}")
     logger.info(f"Execution timeout: {FASTTRANSFER_TIMEOUT}s")
@@ -842,5 +842,10 @@ async def main():
         await app.run(read_stream, write_stream, app.create_initialization_options())
 
 
-if __name__ == "__main__":
+def cli():
+    """Synchronous entry point for the console script."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,5 +1,7 @@
 # FastTransfer MCP Server
 
+<!-- mcp-name: io.github.aetperf/fasttransfer-mcp -->
+
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that exposes [FastTransfer](https://aetperf.github.io/FastTransfer-Documentation/) functionality for efficient data transfer between various database systems.
 
 ## Overview
