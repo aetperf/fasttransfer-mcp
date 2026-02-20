@@ -590,14 +590,22 @@ async def handle_validate_connection(arguments: Dict[str, Any]) -> list[TextCont
         issues = []
 
         # Check for required fields based on connection type
-        if not connection.trusted_auth and not connection.connect_string and not connection.dsn:
+        if (
+            not connection.trusted_auth
+            and not connection.connect_string
+            and not connection.dsn
+        ):
             if not connection.user:
                 issues.append(
                     "- Username is required (unless using trusted authentication, connect_string, or dsn)"
                 )
 
         # Check server format (only if server is provided)
-        if connection.server and ":" not in connection.server and "\\" not in connection.server:
+        if (
+            connection.server
+            and ":" not in connection.server
+            and "\\" not in connection.server
+        ):
             issues.append(
                 f"- Server '{connection.server}' may need port (e.g., localhost:5432) or instance name"
             )
@@ -780,10 +788,12 @@ def _build_transfer_explanation(request: TransferRequest) -> str:
             f"Import file '{request.source.file_input}' via {request.source.type} into {request.source.database}"
         )
     elif request.source.query:
-        server_info = f" ({request.source.server}/{request.source.database})" if request.source.server else f" ({request.source.database})"
-        parts.append(
-            f"Execute query on {request.source.type}{server_info}"
+        server_info = (
+            f" ({request.source.server}/{request.source.database})"
+            if request.source.server
+            else f" ({request.source.database})"
         )
+        parts.append(f"Execute query on {request.source.type}{server_info}")
     else:
         source_table = (
             f"{request.source.schema}.{request.source.table}"

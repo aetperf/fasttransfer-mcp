@@ -84,19 +84,54 @@ class VersionCapabilities:
 # Static version registry: version string -> capabilities
 VERSION_REGISTRY: Dict[str, VersionCapabilities] = {
     "0.16.0.0": VersionCapabilities(
-        source_types=frozenset([
-            "clickhouse", "duckdb", "duckdbstream", "hana", "mssql",
-            "msoledbsql", "mysql", "nzoledb", "nzsql", "nzbulk",
-            "odbc", "oledb", "oraodp", "pgcopy", "pgsql", "teradata",
-        ]),
-        target_types=frozenset([
-            "clickhousebulk", "duckdb", "hanabulk", "msbulk", "mysqlbulk",
-            "nzbulk", "orabulk", "oradirect", "pgcopy", "pgsql", "teradata",
-        ]),
-        parallelism_methods=frozenset([
-            "Ctid", "DataDriven", "Ntile", "NZDataSlice", "None",
-            "Physloc", "Random", "RangeId", "Rowid",
-        ]),
+        source_types=frozenset(
+            [
+                "clickhouse",
+                "duckdb",
+                "duckdbstream",
+                "hana",
+                "mssql",
+                "msoledbsql",
+                "mysql",
+                "nzoledb",
+                "nzsql",
+                "nzbulk",
+                "odbc",
+                "oledb",
+                "oraodp",
+                "pgcopy",
+                "pgsql",
+                "teradata",
+            ]
+        ),
+        target_types=frozenset(
+            [
+                "clickhousebulk",
+                "duckdb",
+                "hanabulk",
+                "msbulk",
+                "mysqlbulk",
+                "nzbulk",
+                "orabulk",
+                "oradirect",
+                "pgcopy",
+                "pgsql",
+                "teradata",
+            ]
+        ),
+        parallelism_methods=frozenset(
+            [
+                "Ctid",
+                "DataDriven",
+                "Ntile",
+                "NZDataSlice",
+                "None",
+                "Physloc",
+                "Random",
+                "RangeId",
+                "Rowid",
+            ]
+        ),
         supports_nobanner=True,
         supports_version_flag=True,
         supports_file_input=True,
@@ -158,9 +193,7 @@ class VersionDetector:
                 )
                 logger.info(f"Detected FastTransfer version: {self._detected_version}")
             else:
-                logger.warning(
-                    f"Could not parse version from output: {output!r}"
-                )
+                logger.warning(f"Could not parse version from output: {output!r}")
         except subprocess.TimeoutExpired:
             logger.warning("Version detection timed out")
         except FileNotFoundError:

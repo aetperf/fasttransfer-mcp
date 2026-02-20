@@ -89,14 +89,18 @@ class ConnectionConfig(BaseModel):
     """Database connection configuration."""
 
     type: str = Field(..., description="Connection type (source or target)")
-    server: Optional[str] = Field(None, description="Server address (host:port or host\\instance)")
+    server: Optional[str] = Field(
+        None, description="Server address (host:port or host\\instance)"
+    )
     database: str = Field(..., description="Database name")
     schema: Optional[str] = Field(None, description="Schema name")
     table: Optional[str] = Field(
         None, description="Table name (optional if query provided)"
     )
     query: Optional[str] = Field(None, description="SQL query (alternative to table)")
-    file_input: Optional[str] = Field(None, description="File path for data input (alternative to table/query)")
+    file_input: Optional[str] = Field(
+        None, description="File path for data input (alternative to table/query)"
+    )
     user: Optional[str] = Field(None, description="Username for authentication")
     password: Optional[str] = Field(None, description="Password for authentication")
     trusted_auth: bool = Field(
@@ -139,9 +143,7 @@ class ConnectionConfig(BaseModel):
             if self.server:
                 conflicts.append("server")
             if conflicts:
-                raise ValueError(
-                    f"dsn cannot be used with: {', '.join(conflicts)}"
-                )
+                raise ValueError(f"dsn cannot be used with: {', '.join(conflicts)}")
 
         # trusted_auth excludes user and password
         if self.trusted_auth:
@@ -206,15 +208,9 @@ class TransferOptions(BaseModel):
     settings_file: Optional[str] = Field(
         None, description="Path to custom settings JSON file"
     )
-    log_level: Optional[LogLevel] = Field(
-        None, description="Override log level"
-    )
-    no_banner: bool = Field(
-        False, description="Suppress the FastTransfer banner"
-    )
-    license_path: Optional[str] = Field(
-        None, description="Path or URL to license file"
-    )
+    log_level: Optional[LogLevel] = Field(None, description="Override log level")
+    no_banner: bool = Field(False, description="Suppress the FastTransfer banner")
+    license_path: Optional[str] = Field(None, description="Path or URL to license file")
 
     @field_validator("degree")
     @classmethod
@@ -271,9 +267,13 @@ class TransferRequest(BaseModel):
         count = sum([has_table, has_query, has_file_input])
 
         if count == 0:
-            raise ValueError("Source must specify either 'table', 'query', or 'file_input'")
+            raise ValueError(
+                "Source must specify either 'table', 'query', or 'file_input'"
+            )
         if count > 1:
-            raise ValueError("Source must specify only one of 'table', 'query', or 'file_input'")
+            raise ValueError(
+                "Source must specify only one of 'table', 'query', or 'file_input'"
+            )
         return self
 
     @model_validator(mode="after")

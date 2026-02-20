@@ -260,8 +260,14 @@ class CommandBuilder:
         mask_next = False
 
         sensitive_flags = {
-            "--sourcepassword", "--targetpassword", "-x", "-X",
-            "--sourceconnectstring", "--targetconnectstring", "-g", "-G",
+            "--sourcepassword",
+            "--targetpassword",
+            "-x",
+            "-X",
+            "--sourceconnectstring",
+            "--targetconnectstring",
+            "-g",
+            "-G",
         }
 
         for part in command:
