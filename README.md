@@ -2,6 +2,10 @@
 
 <!-- mcp-name: io.github.arpe-io/fasttransfer-mcp -->
 
+[![PyPI](https://img.shields.io/pypi/v/fasttransfer-mcp)](https://pypi.org/project/fasttransfer-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/?q=arpe-io)
+
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that exposes [FastTransfer](https://aetperf.github.io/FastTransfer-Documentation/) functionality for efficient data transfer between various database systems.
 
 ## Overview

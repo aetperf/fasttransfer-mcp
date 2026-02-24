@@ -40,7 +40,7 @@ dev = [
 fasttransfer-mcp = "src.server:main"
 
 [project.urls]
-Homepage = "https://aetperf.github.io/FastTransfer-Documentation/"
+Homepage = "https://fasttransfer-docs.arpe.io/latest/"
 Repository = "https://github.com/arpe-io/fasttransfer-mcp"
 Issues = "https://github.com/arpe-io/fasttransfer-mcp/issues"
 
