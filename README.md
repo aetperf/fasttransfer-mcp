@@ -234,5 +234,5 @@ This MCP server wrapper is provided as-is. FastTransfer itself is a separate pro
 
 ## Related Links
 
-- [FastTransfer Documentation](https://aetperf.github.io/FastTransfer-Documentation/)
+- [FastTransfer Documentation](https://fasttransfer-docs.arpe.io/latest/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
