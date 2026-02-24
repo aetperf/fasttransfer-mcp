@@ -2,6 +2,17 @@
 
 All notable changes to the FastTransfer MCP Server will be documented in this file.
 
+## [0.1.4] - 2026-02-24
+
+### Added
+- PyPI, License, and MCP Registry badges in README
+- GitHub Actions workflow for automated PyPI publishing on release
+- Missing environment variables (`FASTTRANSFER_LOG_DIR`, `LOG_LEVEL`) in server.json
+- GitHub repository topics for MCP Registry discoverability
+
+### Fixed
+- Documentation URL in pyproject.toml
+
 ## [0.1.2] - 2026-02-23
 
 ### Added
