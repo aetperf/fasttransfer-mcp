@@ -6,19 +6,19 @@
     "url": "https://github.com/arpe-io/fasttransfer-mcp",
     "source": "github"
   },
-  "version": "0.1.5",
+  "version": "0.1.6",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "fasttransfer-mcp",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "description": "Path to the FastTransfer binary",
-          "isRequired": true,
+          "description": "Path to the FastTransfer binary (optional — server runs in preview-only mode without it)",
+          "isRequired": false,
           "format": "string",
           "isSecret": false,
           "name": "FASTTRANSFER_PATH"
