@@ -105,7 +105,7 @@ class TestCommandBuilder:
 
         with pytest.raises(FastTransferError) as exc_info:
             builder.execute_command(["/nonexistent/path/FastTransfer", "--help"])
-        assert "preview-only mode" in str(exc_info.value)
+        assert "Execution requires" in str(exc_info.value)
         assert "https://arpe.io" in str(exc_info.value)
 
     def test_preview_only_get_version(self):

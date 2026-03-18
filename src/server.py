@@ -79,10 +79,10 @@ try:
     command_builder = CommandBuilder(FASTTRANSFER_PATH)
     version_info = command_builder.get_version()
     if command_builder._preview_only:
-        logger.warning(
-            f"FastTransfer binary not found at: {FASTTRANSFER_PATH}. "
-            "Server running in preview-only mode. "
-            "Install the binary from https://arpe.io to enable execution."
+        logger.info(
+            f"FastTransfer binary not configured (path: {FASTTRANSFER_PATH}). "
+            "Command building and preview tools are available. "
+            "Download from https://arpe.io and set FASTTRANSFER_PATH to enable execution."
         )
     else:
         logger.info(f"FastTransfer binary found at: {FASTTRANSFER_PATH}")
@@ -263,6 +263,12 @@ async def list_tools() -> list[Tool]:
                             },
                         },
                     },
+                    "os_type": {
+                        "type": "string",
+                        "enum": ["linux", "windows"],
+                        "description": "Target operating system for command formatting",
+                        "default": "linux",
+                    },
                 },
                 "required": ["source", "target"],
             },
@@ -426,14 +432,17 @@ async def handle_preview_transfer(arguments: Dict[str, Any]) -> list[TextContent
             TextContent(
                 type="text",
                 text=(
-                    "Error: FastTransfer binary not found or not accessible.\n"
-                    f"Expected location: {FASTTRANSFER_PATH}\n"
+                    "Error: FastTransfer server failed to initialize.\n"
+                    f"Expected binary location: {FASTTRANSFER_PATH}\n"
                     "Please set FASTTRANSFER_PATH environment variable correctly."
                 ),
             )
         ]
 
     try:
+        # Extract os_type before passing to TransferRequest (not part of the model)
+        os_type = arguments.pop("os_type", "linux")
+
         # Validate and parse request
         request = TransferRequest(**arguments)
 
@@ -448,7 +457,7 @@ async def handle_preview_transfer(arguments: Dict[str, Any]) -> list[TextContent
         command = command_builder.build_command(request)
 
         # Format for display (with masked passwords)
-        display_command = command_builder.format_command_display(command, mask=True)
+        display_command = command_builder.format_command_display(command, mask=True, os_type=os_type)
 
         # Create explanation
         explanation = _build_transfer_explanation(request)
@@ -461,9 +470,8 @@ async def handle_preview_transfer(arguments: Dict[str, Any]) -> list[TextContent
 
         if command_builder._preview_only:
             response += [
-                "**NOTE: Server is in preview-only mode (binary not found at "
-                f"{command_builder.binary_path}). "
-                "Install the binary from https://arpe.io to enable execution.**",
+                "**NOTE: Execution is not available (binary not configured).** "
+                "Download from https://arpe.io to enable execution.",
                 "",
             ]
 
@@ -526,7 +534,7 @@ async def handle_execute_transfer(arguments: Dict[str, Any]) -> list[TextContent
         return [
             TextContent(
                 type="text",
-                text="Error: FastTransfer binary not found. Please check FASTTRANSFER_PATH.",
+                text="Error: FastTransfer server failed to initialize. Please check FASTTRANSFER_PATH.",
             )
         ]
 
@@ -535,8 +543,8 @@ async def handle_execute_transfer(arguments: Dict[str, Any]) -> list[TextContent
             TextContent(
                 type="text",
                 text=(
-                    f"Server is in preview-only mode (binary not found at {command_builder.binary_path}). "
-                    "Install the binary from https://arpe.io to enable execution."
+                    "Execution requires the FastTransfer binary. "
+                    "Download from https://arpe.io and set FASTTRANSFER_PATH."
                 ),
             )
         ]
@@ -784,8 +792,8 @@ async def handle_get_version(arguments: Dict[str, Any]) -> list[TextContent]:
             TextContent(
                 type="text",
                 text=(
-                    "Error: FastTransfer binary not found or not accessible.\n"
-                    f"Expected location: {FASTTRANSFER_PATH}\n"
+                    "Error: FastTransfer server failed to initialize.\n"
+                    f"Expected binary location: {FASTTRANSFER_PATH}\n"
                     "Please set FASTTRANSFER_PATH environment variable correctly."
                 ),
             )
@@ -801,7 +809,7 @@ async def handle_get_version(arguments: Dict[str, Any]) -> list[TextContent]:
 
     if version_info.get("preview_only"):
         response += [
-            "**Mode**: Preview-only (binary not found)",
+            "**Mode**: Command builder (execution not available)",
             f"**Binary Path**: {version_info['binary_path']}",
             f"**Message**: {version_info['message']}",
             "",

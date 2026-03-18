@@ -46,7 +46,7 @@ class CommandBuilder:
             # Skip version detection; use latest known capabilities as fallback
             self._version_detector = VersionDetector(str(self.binary_path))
             self._version_detector._detection_done = True  # skip running the binary
-            logger.info("Running in preview-only mode (binary not found)")
+            logger.info("Running in command builder mode (binary not configured)")
         else:
             self._version_detector = VersionDetector(str(self.binary_path))
             detected = self._version_detector.detect()
@@ -72,7 +72,7 @@ class CommandBuilder:
             return {
                 "preview_only": True,
                 "binary_path": str(self.binary_path),
-                "message": "Binary not found. Install from https://arpe.io",
+                "message": "Set binary path to enable execution. Download from https://arpe.io",
                 "version": None,
                 "detected": False,
                 "capabilities": {
@@ -114,7 +114,7 @@ class CommandBuilder:
         if not self.binary_path.exists():
             logger.warning(
                 f"FastTransfer binary not found at: {self.binary_path}. "
-                "Entering preview-only mode. Install from https://arpe.io"
+                "Set binary path to enable execution. Download from https://arpe.io"
             )
             self._preview_only = True
             return
@@ -122,7 +122,7 @@ class CommandBuilder:
         if not self.binary_path.is_file():
             logger.warning(
                 f"FastTransfer path is not a file: {self.binary_path}. "
-                "Entering preview-only mode. Install from https://arpe.io"
+                "Set binary path to enable execution. Download from https://arpe.io"
             )
             self._preview_only = True
             return
@@ -130,7 +130,7 @@ class CommandBuilder:
         if not os.access(self.binary_path, os.X_OK):
             logger.warning(
                 f"FastTransfer binary is not executable: {self.binary_path}. "
-                "Entering preview-only mode. Install from https://arpe.io"
+                "Set binary path to enable execution. Download from https://arpe.io"
             )
             self._preview_only = True
             return
@@ -319,39 +319,45 @@ class CommandBuilder:
 
         return masked
 
-    def format_command_display(self, command: List[str], mask: bool = True) -> str:
+    def format_command_display(self, command: List[str], mask: bool = True, os_type: str = "linux") -> str:
         """
         Format command for display with optional password masking.
 
         Args:
             command: Command list
             mask: Whether to mask passwords (default: True)
+            os_type: Target operating system for command formatting ("linux" or "windows")
 
         Returns:
             Formatted command string
         """
         display_cmd = self.mask_password(command) if mask else command
 
-        # Format for readability
-        formatted_parts = [display_cmd[0]]  # Binary path
+        # Adjust binary path for Windows
+        if os_type == "windows":
+            binary = display_cmd[0].replace("/", "\\")
+            if not binary.endswith(".exe"):
+                binary += ".exe"
+            formatted_parts = [binary]
+        else:
+            formatted_parts = [display_cmd[0]]
 
         i = 1
         while i < len(display_cmd):
-            if i < len(display_cmd) - 1 and display_cmd[i].startswith("--"):
-                # This is a parameter with a value
+            if i < len(display_cmd) - 1 and display_cmd[i].startswith("-") and not display_cmd[i + 1].startswith("-"):
                 param = display_cmd[i]
                 value = display_cmd[i + 1]
-                # Quote values that might contain spaces
                 if " " in value:
                     formatted_parts.append(f'{param} "{value}"')
                 else:
                     formatted_parts.append(f"{param} {value}")
                 i += 2
             else:
-                # This is a standalone flag or orphaned value
                 formatted_parts.append(display_cmd[i])
                 i += 1
 
+        if os_type == "windows":
+            return " ^\n  ".join(formatted_parts)
         return " \\\n  ".join(formatted_parts)
 
     def execute_command(
@@ -374,8 +380,7 @@ class CommandBuilder:
         """
         if self._preview_only:
             raise FastTransferError(
-                f"Server is in preview-only mode (binary not found at {self.binary_path}). "
-                "Install the binary from https://arpe.io to enable execution."
+                "Execution requires the binary. Download from https://arpe.io and configure the binary path."
             )
 
         start_time = datetime.now()
